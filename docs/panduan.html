@@ -81,8 +81,11 @@ Postgres + Storage). Semua dijalankan lewat <b>satu skrip</b> <code>setup.sh</co
 <h2>2. Prasyarat VPS</h2>
 <ul>
   <li>OS Linux (Ubuntu/Debian direkomendasikan), akses <code>root</code>/<code>sudo</code>.</li>
-  <li>RAM minimal <b>2&nbsp;GB</b> (disarankan 4&nbsp;GB karena bot memakai Chromium).</li>
-  <li>Penyimpanan minimal <b>10&nbsp;GB</b> kosong.</li>
+  <li>CPU minimal <b>2 vCPU</b> (disarankan 4).</li>
+  <li>RAM minimal <b>4&nbsp;GB</b> (disarankan 8&nbsp;GB) + swap 2&nbsp;GB. Bot memakai Chromium
+      dan <code>next build</code> boros memori.</li>
+  <li>Penyimpanan minimal <b>20&nbsp;GB</b> kosong (image + build cache saja &plusmn;10&nbsp;GB).</li>
+  <li>Arsitektur <b>x86_64</b> (ARM belum diuji).</li>
   <li>Port <b>80</b> dan <b>443</b> terbuka di firewall.</li>
   <li>Sebuah <b>domain</b> (mis. <code>kinanti.sekolah.sch.id</code>) yang bisa diarahkan ke IP VPS.</li>
   <li>Docker akan diinstal otomatis oleh <code>setup.sh</code> bila belum ada.</li>
@@ -137,7 +140,90 @@ token yang dirotasi otomatis.</p>
 <p>Saat sebuah key kena limit (429), key ditandai <i>limited</i> dengan masa jeda
 (cooldown) dan sistem otomatis memakai key berikutnya — dipakai bersama oleh web &amp; bot.</p>
 
-<h2>7. Operasional Sehari-hari</h2>
+<div class="page-break"></div>
+
+<h2>7. Daftar Route yang Tersedia</h2>
+
+<h3>Halaman (dibuka lewat browser)</h3>
+<table>
+  <tr><th style="width:22%">Route</th><th style="width:18%">Untuk siapa</th><th>Fungsi</th></tr>
+  <tr>
+    <td><code>/login</code></td><td>Semua</td>
+    <td>Masuk dengan <b>nomor WhatsApp</b> (format <code>62xxx</code>) + password.
+        Nomor harus diketik <b>persis</b> seperti tersimpan.</td>
+  </tr>
+  <tr>
+    <td><code>/register</code></td><td>Publik</td>
+    <td>Pendaftaran akun. Pada <code>APP_MODE=production</code> selalu membuat akun
+        <b>siswa</b> (wajib pilih kelas). Pada <code>development</code> membuat akun <b>guru</b>.</td>
+  </tr>
+  <tr>
+    <td><code>/</code></td><td>Siswa</td>
+    <td>Beranda siswa — daftar tugas &amp; pengumpulan. Guru yang membuka ini
+        otomatis dialihkan ke <code>/guru</code>.</td>
+  </tr>
+  <tr>
+    <td><code>/guru</code></td><td>Guru</td>
+    <td>Dashboard guru — buat tugas, generate soal HOTS, broadcast WhatsApp, rekap nilai.</td>
+  </tr>
+  <tr>
+    <td><code>/guru/nilai/[id]</code></td><td>Guru</td>
+    <td>Detail penilaian sebuah tugas: jawaban siswa, nilai AI, dan koreksi manual.</td>
+  </tr>
+  <tr>
+    <td><code>/admin</code></td><td>Admin sistem</td>
+    <td>Dashboard token AI (switcher). <b>Login terpisah</b> — bukan akun guru/siswa.</td>
+  </tr>
+  <tr>
+    <td><code>/dashboard</code></td><td>&mdash;</td>
+    <td><i>Sisa template</i> — berisi tabel contoh bawaan, bukan bagian sistem dan tanpa
+        proteksi login. Aman diabaikan (boleh dihapus).</td>
+  </tr>
+</table>
+
+<h3>Aturan akses (middleware)</h3>
+<p>Middleware hanya menjaga <code>/</code> dan <code>/guru/*</code>:</p>
+<ul>
+  <li><b>Belum login</b> membuka <code>/</code> atau <code>/guru/*</code> &rarr; dialihkan ke <code>/login</code>.</li>
+  <li><b>Siswa</b> membuka <code>/guru/*</code> &rarr; dialihkan ke <code>/</code>.</li>
+  <li><b>Guru</b> membuka <code>/</code> &rarr; dialihkan ke <code>/guru</code>.</li>
+  <li><code>/login</code>, <code>/register</code>, <code>/dashboard</code> terbuka untuk umum.</li>
+  <li><code>/admin</code> memakai cookie login sendiri (terpisah dari NextAuth), diperiksa di setiap API-nya.</li>
+</ul>
+
+<h3>Endpoint API</h3>
+<p>Dipakai oleh aplikasi sendiri (tidak perlu diakses manual), didaftar untuk keperluan
+pemeriksaan &amp; perbaikan.</p>
+<table>
+  <tr><th style="width:38%">Endpoint</th><th>Fungsi</th></tr>
+  <tr><td><code>/api/auth/[...nextauth]</code></td><td>Login/logout &amp; sesi (NextAuth)</td></tr>
+  <tr><td><code>/api/register</code></td><td>Membuat akun baru</td></tr>
+  <tr><td><code>/api/app-mode</code></td><td>Memberi tahu UI mode aplikasi (production/development)</td></tr>
+  <tr><td><code>/api/enums/kelas</code></td><td>Daftar pilihan kelas saat pendaftaran</td></tr>
+  <tr><td><code>/api/assignments</code></td><td>Daftar tugas (sisi siswa)</td></tr>
+  <tr><td><code>/api/assignments/check-kode</code></td><td>Validasi kode tugas</td></tr>
+  <tr><td><code>/api/assignments/duplicate</code></td><td>Menggandakan tugas</td></tr>
+  <tr><td><code>/api/upload-tugas</code></td><td>Unggah berkas pengumpulan siswa</td></tr>
+  <tr><td><code>/api/submission-detail</code></td><td>Detail satu pengumpulan</td></tr>
+  <tr><td><code>/api/guru/assignments</code></td><td>Daftar tugas milik guru</td></tr>
+  <tr><td><code>/api/guru/create-assignment</code></td><td>Membuat tugas baru</td></tr>
+  <tr><td><code>/api/guru/generate-hots</code></td><td><b>Generate soal HOTS</b> memakai Gemini (pakai token dari pool)</td></tr>
+  <tr><td><code>/api/guru/penilaian</code></td><td><b>Penilaian otomatis</b> jawaban siswa</td></tr>
+  <tr><td><code>/api/guru/rekap</code></td><td>Rekap nilai</td></tr>
+  <tr><td><code>/api/guru/broadcast</code></td><td>Kirim pesan ke siswa lewat bot WhatsApp</td></tr>
+  <tr><td><code>/api/admin/login</code> &middot; <code>/logout</code></td><td>Login/logout dashboard token</td></tr>
+  <tr><td><code>/api/admin/tokens</code> &middot; <code>/tokens/[id]</code></td><td>Kelola token AI (tambah, ubah, reset, hapus)</td></tr>
+</table>
+
+<div class="note">
+  <b>Akun guru pertama.</b> Pada database baru tabel pengguna kosong, dan
+  <code>/register</code> pada mode production hanya membuat akun <b>siswa</b> — jadi tidak
+  ada cara membuat guru lewat halaman web. Karena itu <code>setup.sh</code> menanyakan dan
+  membuat akun guru pertama. Menambah guru lain:
+  <pre><code>docker compose run --rm web node scripts/create-guru.js "Nama Guru" "08123456789" "password"</code></pre>
+</div>
+
+<h2>8. Operasional Sehari-hari</h2>
 <table>
   <tr><th>Kebutuhan</th><th>Perintah</th></tr>
   <tr><td>Cek status semua service</td><td><code>docker compose ps</code></td></tr>
@@ -159,7 +245,7 @@ cat backup-YYYY-MM-DD.sql | docker compose exec -T db psql -U postgres -d postgr
 docker run --rm -v kinanti_storage_data:/data -v "$PWD":/out alpine \
   tar czf /out/storage-backup.tgz -C /data .</code></pre>
 
-<h2>8. Troubleshooting</h2>
+<h2>9. Troubleshooting</h2>
 <table>
   <tr><th>Gejala</th><th>Solusi</th></tr>
   <tr><td>HTTPS gagal / sertifikat tidak terbit</td>
