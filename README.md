@@ -96,8 +96,21 @@ DOMAIN=kinanti.sekolah.sch.id ACME_EMAIL=admin@sekolah.sch.id sudo -E bash setup
 4. Menyalakan Postgres + Storage, menunggu sampai sehat
 5. Menerapkan schema aplikasi (`prisma db push`) — termasuk tabel `AiToken`
 6. Membuat bucket `assignments` & `submissions`
-7. Menyalakan web, bot, dan Caddy
-8. **Mencetak IP publik VPS, target DNS, port, URL admin, dan cara scan QR**
+7. **Membuat akun guru pertama** (menanyakan nama, nomor WA, password) — lihat catatan di bawah
+8. Menyalakan web, bot, dan Caddy
+9. **Mencetak IP publik VPS, target DNS, port, URL admin, dan cara scan QR**
+
+> **Kenapa akun guru dibuat oleh skrip?** Database baru berarti tabel `User` kosong.
+> Halaman `/register` hanya membuat akun **guru** saat `APP_MODE=development`; pada
+> `production` ia selalu membuat akun **siswa**. Tanpa langkah ini tidak akan ada
+> seorang pun yang bisa membuat tugas. Siswa tetap mendaftar sendiri lewat `/register`.
+>
+> Nomor disimpan dalam format `62xxx` (mengikuti format yang dipakai bot WhatsApp).
+> **Login memakai nomor persis seperti yang dicetak `setup.sh`**, mis. `628123456789`.
+> Menambah guru lain:
+> ```bash
+> docker compose run --rm web node scripts/create-guru.js "Nama Guru" "08123456789" "password"
+> ```
 
 ### Langkah 3 — Arahkan DNS
 
@@ -122,6 +135,14 @@ scan ulang** saat restart.
 
 Buka `https://<domain>/admin` → login (`admin` / password ada di `.env`) →
 tambahkan **beberapa** API key Gemini.
+
+> Tanpa minimal satu token (di `/admin` atau `GEMINI_API_KEY` di `.env`), fitur
+> generate soal HOTS & penilaian otomatis tidak akan jalan. Fitur lain tetap normal.
+
+### Langkah 6 — Coba login
+
+Login sebagai guru dengan nomor yang dicetak `setup.sh` (format `62xxx`) + password
+yang Anda isi tadi. Siswa mendaftar sendiri lewat `https://<domain>/register`.
 
 **Cara kerja rotasi:** key dipakai urut `priority`. Saat sebuah key kena limit (HTTP 429 /
 quota exhausted), key itu ditandai `limited` + diberi cooldown (default 15 menit) dan
@@ -210,10 +231,22 @@ kinanti-migrate/
 | `Dockerfile` web & bot (`docker build --check`) | ✅ Lolos tanpa warning |
 | Build Next.js standalone + Prisma engine ter-bundle | ✅ Terverifikasi lokal |
 | `gen-jwt.js` (JWT HS256 anon/service_role) | ✅ Terverifikasi |
-| Sintaks `setup.sh` | ✅ Valid |
+| Sintaks `setup.sh` + `create-guru.js` | ✅ Valid |
 | Rotasi token AI (unit test dgn mock Prisma) | ✅ Terverifikasi |
-| **`docker compose up` end-to-end** | ⚠️ **Belum diuji** — mesin pengembangan kehabisan disk (sisa 1,7 GB dari kebutuhan ~10 GB) |
+| Format nomor guru cocok dgn login & bot (`62xxx`) | ✅ Diverifikasi terhadap kode |
+| **`docker compose up` end-to-end** | ⚠️ **Belum diuji** — mesin pengembangan kehabisan disk (sisa ~1,5 GB dari kebutuhan ~10 GB) |
+| Migrasi schema `storage` oleh storage-api | ⚠️ Belum diuji (konfigurasi mengikuti Supabase self-hosted resmi) |
+| Scan QR bot di dalam container | ⚠️ Belum diuji |
 
 Artinya: **jalankan `setup.sh` pertama kali di VPS dengan disk memadai**, dan perhatikan
-output `docker compose logs` pada percobaan pertama. Kalau ada langkah yang gagal, skrip
-aman untuk dijalankan ulang.
+output `docker compose logs` pada percobaan pertama. Skrip **idempotent** — kalau ada
+langkah yang gagal, aman dijalankan ulang setelah diperbaiki.
+
+Titik yang paling perlu diperhatikan saat percobaan pertama:
+
+```bash
+docker compose ps                  # semua service harus Up / healthy
+docker compose logs storage        # migrasi schema storage berhasil?
+docker compose logs caddy          # sertifikat HTTPS terbit? (DNS harus sudah mengarah)
+docker compose logs -f bot         # QR muncul?
+```

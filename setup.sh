@@ -143,6 +143,35 @@ values ('assignments','assignments',true), ('submissions','submissions',true)
 on conflict (id) do update set public = excluded.public;
 SQL
 
+# ---------- 5b. Akun guru pertama ----------
+# Database baru = tabel User kosong. Halaman /register hanya membuat akun GURU bila
+# APP_MODE=development; pada production selalu siswa. Tanpa langkah ini tak ada yang
+# bisa membuat tugas. Idempotent: dilewati bila sudah ada guru.
+GURU_COUNT="$(dc exec -T db psql -U postgres -d postgres -tAc \
+  "select count(*) from \"User\" where role='guru'" 2>/dev/null | tr -d '[:space:]' || echo "0")"
+
+if [ "${GURU_COUNT:-0}" = "0" ]; then
+  info "Belum ada akun guru — membuat akun guru pertama."
+  GURU_NAMA="${GURU_NAMA:-}"; GURU_PHONE="${GURU_PHONE:-}"; GURU_PASSWORD="${GURU_PASSWORD:-}"
+  [ -n "$GURU_NAMA" ]  || read -rp "  Nama guru                     : " GURU_NAMA
+  [ -n "$GURU_PHONE" ] || read -rp "  Nomor WhatsApp (mis. 08123...): " GURU_PHONE
+  if [ -z "$GURU_PASSWORD" ]; then
+    read -rsp "  Password (min. 6 karakter)    : " GURU_PASSWORD; echo
+  fi
+  # Nomor ternormalisasi diambil dari output skrip (satu sumber kebenaran).
+  if GURU_OUT="$(dc run --rm web node scripts/create-guru.js "$GURU_NAMA" "$GURU_PHONE" "$GURU_PASSWORD" 2>&1)"; then
+    printf '%s\n' "$GURU_OUT" | grep -v '^PHONE=' || true
+    GURU_LOGIN="$(printf '%s\n' "$GURU_OUT" | grep '^PHONE=' | tail -n1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+    ok "Akun guru siap."
+  else
+    printf '%s\n' "$GURU_OUT"
+    warn "Gagal membuat akun guru. Jalankan manual:"
+    warn "  docker compose run --rm web node scripts/create-guru.js \"Nama\" \"08xxx\" \"password\""
+  fi
+else
+  ok "Akun guru sudah ada ($GURU_COUNT) — dilewati."
+fi
+
 # ---------- 6. Jalankan web, bot, caddy ----------
 info "Menjalankan web, bot, dan reverse proxy..."
 dc up -d web bot caddy
@@ -167,6 +196,10 @@ echo ""
 echo -e "${BOLD}3) Akses aplikasi:${NC}"
 echo -e "   Web:            ${BLUE}${PUBURL}${NC}"
 echo -e "   Dashboard AI:   ${BLUE}${PUBURL%/}/admin${NC}   (login: ${ADMIN_USER} / ${ADMIN_PASS})"
+if [ -n "${GURU_LOGIN:-}" ]; then
+  echo -e "   Login guru:     nomor ${YELLOW}${GURU_LOGIN}${NC} (ketik persis seperti ini) + password yang tadi diisi"
+fi
+echo -e "   Siswa mendaftar sendiri lewat ${BLUE}${PUBURL%/}/register${NC}"
 echo ""
 echo -e "${BOLD}4) Bot WhatsApp — scan QR (sekali saja):${NC}"
 echo -e "   ${YELLOW}docker compose logs -f bot${NC}   lalu scan QR dengan WhatsApp."

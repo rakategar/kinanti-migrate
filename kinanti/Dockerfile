@@ -45,6 +45,9 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 COPY --from=build /app/prisma ./prisma
+# Skrip bootstrap akun guru pertama (dipanggil setup.sh). Memakai @prisma/client
+# & bcryptjs dari node_modules hasil tracing standalone.
+COPY --from=build /app/scripts ./scripts
 
 EXPOSE 3000
 # Default: jalankan server. setup.sh dapat override → `prisma db push`.
