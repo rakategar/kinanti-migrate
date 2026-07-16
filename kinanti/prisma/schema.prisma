@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+model User {
+  id        Int    @id @default(autoincrement()) 
+  nama      String
+  phone     String  @unique // Nomor WhatsApp
+  password  String @default("")
+  role      Role  
+  kelas     Kelas?
+  guruTugas Assignment[] @relation("GuruTugas") 
+  tugas     AssignmentStatus[] // Menyimpan status tugas siswa
+  submissions AssignmentSubmission[] // Relasi ke tugas yang dikumpulkan siswa
+}
+
+model Assignment {
+  id          Int      @id @default(autoincrement()) 
+  kode        String   @unique 
+  guru        User     @relation("GuruTugas", fields: [guruId], references: [id]) 
+  guruId      Int
+  kelas       String  
+  judul       String
+  deskripsi   String
+  pdfUrl      String?  // Bisa null jika guru tidak melampirkan PDF
+  lampirkanPDF Boolean @default(false) // Apakah tugas memerlukan PDF?
+  createdAt   DateTime @default(now()) 
+  deadline    DateTime? // Kolom baru untuk menyimpan deadline (opsional)
+  status      AssignmentStatus[] // Relasi ke status tugas siswa
+  submissions AssignmentSubmission[] // Relasi ke tugas yang dikumpulkan siswa
+  kunciJawaban String? // Kunci jawaban untuk tugas (opsional)
+}
+
+// Model untuk menyimpan status tugas siswa (apakah selesai atau belum)
+model AssignmentStatus {
+  id        Int      @id @default(autoincrement())
+  siswa     User     @relation(fields: [siswaId], references: [id])
+  siswaId   Int
+  tugas    Assignment @relation(fields: [tugasId], references: [id], onDelete: Cascade)
+  tugasId   Int
+  status    TugasStatus @default(BELUM_SELESAI)
+}
+
+// Model baru untuk menyimpan tugas yang dikumpulkan siswa
+model AssignmentSubmission {
+  id        Int      @id @default(autoincrement())
+  siswa     User     @relation(fields: [siswaId], references: [id])
+  siswaId   Int
+  tugas    Assignment @relation(fields: [tugasId], references: [id], onDelete: Cascade)
+  tugasId   Int
+  pdfUrl    String?  // Bisa null jika tidak ada lampiran
+  status    TugasStatus @default(SELESAI) // Status tugas (opsional)
+  createdAt DateTime @default(now()) 
+  updatedAt  DateTime @updatedAt
+  evaluation String? // Feedback atau evaluasi dari guru/AI (opsional)
+  grade     String?  // Nilai tugas (opsional)
+  score    Int?   // Skor tugas (opsional)
+}
+
+enum Role {
+  guru
+  siswa
+}
+
+enum Kelas {
+  XTKJ1
+  XTKJ2
+  XITKJ1
+  XITKJ2
+  XIITKJ1
+  XIITKJ2
+  TPTUP
+}
+
+enum TugasStatus {
+  BELUM_SELESAI
+  SELESAI
+}
+
+model ConversationState {
+  id         String   @id @default(cuid())
+  userPhone  String   @unique
+  lastIntent String?
+  slots      Json
+  updatedAt  DateTime @updatedAt
+}
+
+model NlpLog {
+  id         String   @id @default(cuid())
+  userPhone  String
+  text       String
+  predicted  String
+  confidence Float
+  entities   Json?
+  createdAt  DateTime @default(now())
+}
+
+
+// =================== PHONE TO JID MAPPING ===================
+// Menyimpan mapping nomor telepon ke WhatsApp JID
+// Diperlukan untuk handle @lid (Linked ID) pada device yang di-link
+model PhoneJidMapping {
+  id        Int      @id @default(autoincrement())
+  phone     String   @unique  // Nomor telepon (62xxx)
+  jid       String             // WhatsApp JID (xxx@c.us atau xxx@lid)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+// =================== AI TOKEN POOL ===================
+// Kumpulan API key AI (Gemini). Dipakai bersama oleh web & bot lewat DB yang sama.
+// Sistem memakai key sesuai priority; saat kena limit (429) key ditandai "limited"
+// dengan cooldownUntil dan sistem otomatis pindah ke key berikutnya.
+model AiToken {
+  id            Int       @id @default(autoincrement())
+  label         String                        // nama/keterangan token
+  provider      String    @default("gemini")
+  apiKey        String                        // API key Gemini
+  priority      Int       @default(0)         // makin kecil = didahulukan
+  active        Boolean   @default(true)      // dinonaktifkan manual dari dashboard
+  status        String    @default("ok")      // ok | limited | error
+  lastError     String?
+  cooldownUntil DateTime?                      // jangan dipakai s/d waktu ini (habis 429)
+  usageCount    Int       @default(0)
+  lastUsedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+
+

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>Panduan Deploy Kinanti</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1f2430; font-size: 11pt; line-height: 1.5; margin: 0;
+  }
+  h1, h2, h3 { color: #4c1d95; line-height: 1.25; }
+  h1 { font-size: 25pt; margin: 0 0 4px; }
+  h2 { font-size: 15pt; margin: 26px 0 8px; border-bottom: 2px solid #ede9fe; padding-bottom: 4px; }
+  h3 { font-size: 12pt; margin: 16px 0 4px; color: #5b21b6; }
+  p { margin: 6px 0; }
+  code, pre { font-family: "JetBrains Mono", "Consolas", monospace; }
+  code { background: #f3f0ff; color: #5b21b6; padding: 1px 5px; border-radius: 4px; font-size: 9.5pt; }
+  pre {
+    background: #1e1b2e; color: #e9e6f5; padding: 12px 14px; border-radius: 8px;
+    font-size: 9pt; line-height: 1.45; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+  }
+  pre code { background: none; color: inherit; padding: 0; }
+  .cover {
+    background: linear-gradient(135deg, #4c1d95, #7c3aed); color: #fff;
+    border-radius: 14px; padding: 34px 30px; margin-bottom: 10px;
+  }
+  .cover h1 { color: #fff; }
+  .cover .sub { font-size: 12pt; opacity: .92; margin-top: 6px; }
+  .cover .meta { margin-top: 18px; font-size: 9.5pt; opacity: .85; }
+  .lead { color: #444; font-size: 11pt; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9.5pt; }
+  th, td { border: 1px solid #e5e1f0; padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: #f5f3ff; color: #4c1d95; }
+  .note { background: #fff7ed; border-left: 4px solid #f59e0b; padding: 9px 12px; border-radius: 6px; margin: 10px 0; font-size: 10pt; }
+  .ok { background: #ecfdf5; border-left: 4px solid #10b981; padding: 9px 12px; border-radius: 6px; margin: 10px 0; font-size: 10pt; }
+  ul, ol { margin: 6px 0 6px 4px; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .pill { display: inline-block; background: #ede9fe; color: #5b21b6; border-radius: 20px; padding: 2px 10px; font-size: 8.5pt; font-weight: 600; }
+  .arch { background:#faf9ff; border:1px solid #e5e1f0; border-radius:8px; padding:12px; font-size:8.5pt; }
+  .page-break { page-break-before: always; }
+  footer { margin-top: 30px; padding-top: 8px; border-top: 1px solid #e5e1f0; color: #8b8698; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="pill" style="background:rgba(255,255,255,.2);color:#fff;">DOKUMENTASI DEPLOY</div>
+  <h1>Kinanti</h1>
+  <div class="sub">Panduan Instalasi &amp; Menjalankan di VPS Sekolah<br>Web + Bot WhatsApp + Supabase Lokal (Docker)</div>
+  <div class="meta">Sistem penilaian tugas &amp; generator soal HOTS berbasis AI &middot; Dokumen internal</div>
+</div>
+
+<p class="lead">Dokumen ini menjelaskan cara memasang seluruh sistem Kinanti pada satu VPS
+menggunakan Docker: aplikasi web, bot WhatsApp, dan database (Supabase minimal:
+Postgres + Storage). Semua dijalankan lewat <b>satu skrip</b> <code>setup.sh</code>.</p>
+
+<h2>1. Arsitektur Singkat</h2>
+<p>Seluruh komponen berjalan sebagai container dalam satu <code>docker-compose</code>:</p>
+<div class="arch"><pre style="background:none;color:#1f2430;padding:0;">
+   Internet ──► Caddy (:80/:443, HTTPS otomatis)
+                 ├─ /              ──► web  (Next.js :3000)
+                 └─ /storage/v1/*  ──► storage-api (:5000)
+
+   web  ──Prisma──► db (Postgres :5432)
+   web  ──upload PDF──► storage-api ──► volume file lokal
+   bot  (Express :4000 + Chromium/WhatsApp) ──Prisma──► db
+        └─ sesi WhatsApp disimpan di volume 'wa_auth'
+</pre></div>
+<table>
+  <tr><th>Komponen</th><th>Fungsi</th><th>Port</th></tr>
+  <tr><td>caddy</td><td>Reverse proxy + HTTPS (Let's Encrypt)</td><td>80, 443 (publik)</td></tr>
+  <tr><td>web</td><td>Aplikasi guru/siswa + dashboard token AI</td><td>3000 (internal)</td></tr>
+  <tr><td>bot</td><td>Bot WhatsApp (broadcast, penilaian)</td><td>4000 (internal)</td></tr>
+  <tr><td>db</td><td>PostgreSQL (data aplikasi)</td><td>5432 (internal)</td></tr>
+  <tr><td>storage</td><td>Supabase Storage (file PDF)</td><td>5000 (internal)</td></tr>
+</table>
+
+<h2>2. Prasyarat VPS</h2>
+<ul>
+  <li>OS Linux (Ubuntu/Debian direkomendasikan), akses <code>root</code>/<code>sudo</code>.</li>
+  <li>RAM minimal <b>2&nbsp;GB</b> (disarankan 4&nbsp;GB karena bot memakai Chromium).</li>
+  <li>Penyimpanan minimal <b>10&nbsp;GB</b> kosong.</li>
+  <li>Port <b>80</b> dan <b>443</b> terbuka di firewall.</li>
+  <li>Sebuah <b>domain</b> (mis. <code>kinanti.sekolah.sch.id</code>) yang bisa diarahkan ke IP VPS.</li>
+  <li>Docker akan diinstal otomatis oleh <code>setup.sh</code> bila belum ada.</li>
+</ul>
+
+<h2>3. Instalasi (Satu Perintah)</h2>
+<p>Salin folder project ke VPS, lalu jalankan:</p>
+<pre><code>cd kinanti-migrate
+sudo bash setup.sh</code></pre>
+<p>Atau dengan domain langsung tanpa ditanya:</p>
+<pre><code>DOMAIN=kinanti.sekolah.sch.id ACME_EMAIL=admin@sekolah.sch.id sudo -E bash setup.sh</code></pre>
+<p>Skrip akan otomatis: memasang Docker (bila perlu) &rarr; membuat semua secret &amp;
+kunci Supabase &rarr; build image web &amp; bot &rarr; menyalakan database &amp; storage &rarr;
+membuat tabel (Prisma) &amp; bucket penyimpanan &rarr; menjalankan web, bot, dan Caddy.</p>
+<div class="ok"><b>Idempotent.</b> Skrip aman dijalankan berulang — secret yang sudah ada
+tidak diganti, dan data tetap tersimpan di volume.</div>
+
+<h2>4. Pengaturan DNS</h2>
+<p>Di akhir, <code>setup.sh</code> menampilkan <b>IP publik VPS</b>. Tambahkan record DNS
+di penyedia domain Anda:</p>
+<table>
+  <tr><th>Type</th><th>Name / Host</th><th>Value</th></tr>
+  <tr><td>A</td><td><code>kinanti</code> (atau sesuai subdomain)</td><td>&lt;IP publik VPS dari skrip&gt;</td></tr>
+</table>
+<p>Setelah DNS aktif (biasanya beberapa menit), Caddy otomatis menerbitkan sertifikat
+HTTPS. Buka <code>https://&lt;domain&gt;</code>.</p>
+<div class="note"><b>Uji tanpa domain:</b> jalankan dengan <code>DOMAIN=localhost</code> lalu akses
+<code>http://localhost:3000</code> langsung dari VPS.</div>
+
+<div class="page-break"></div>
+
+<h2>5. Menghubungkan Bot WhatsApp (Scan QR)</h2>
+<p>Bot perlu ditautkan ke satu nomor WhatsApp <b>satu kali</b>:</p>
+<pre><code>docker compose logs -f bot</code></pre>
+<ol>
+  <li>Tunggu QR code muncul di log.</li>
+  <li>Buka WhatsApp di HP &rarr; <b>Perangkat Tertaut</b> &rarr; <b>Tautkan Perangkat</b>.</li>
+  <li>Pindai QR di layar. Setelah "ready", bot aktif.</li>
+</ol>
+<p>Sesi tersimpan di volume <code>wa_auth</code>, jadi tidak perlu scan ulang saat restart.</p>
+
+<h2>6. Dashboard Token AI (Switcher)</h2>
+<p>Agar sistem tidak berhenti saat satu API key Gemini kena limit, tersedia kumpulan
+token yang dirotasi otomatis.</p>
+<ol>
+  <li>Buka <code>https://&lt;domain&gt;/admin</code>.</li>
+  <li>Login dengan <b>username</b> <code>admin</code> dan password dari <code>.env</code>
+      (default <code>kekuatanai</code>).</li>
+  <li>Tambahkan satu atau beberapa <b>API key Gemini</b> beserta <b>prioritas</b>
+      (angka lebih kecil = didahulukan).</li>
+</ol>
+<p>Saat sebuah key kena limit (429), key ditandai <i>limited</i> dengan masa jeda
+(cooldown) dan sistem otomatis memakai key berikutnya — dipakai bersama oleh web &amp; bot.</p>
+
+<h2>7. Operasional Sehari-hari</h2>
+<table>
+  <tr><th>Kebutuhan</th><th>Perintah</th></tr>
+  <tr><td>Cek status semua service</td><td><code>docker compose ps</code></td></tr>
+  <tr><td>Lihat log</td><td><code>docker compose logs -f web|bot|caddy|storage|db</code></td></tr>
+  <tr><td>Hentikan (data aman)</td><td><code>docker compose down</code></td></tr>
+  <tr><td>Jalankan lagi</td><td><code>docker compose up -d</code></td></tr>
+  <tr><td>Perbarui kode</td><td><code>git pull &amp;&amp; docker compose build &amp;&amp; docker compose up -d</code></td></tr>
+</table>
+
+<h3>Backup &amp; Restore</h3>
+<p>Data ada di dua volume: database dan file storage.</p>
+<pre><code># Backup database
+docker compose exec -T db pg_dump -U postgres postgres &gt; backup-$(date +%F).sql
+
+# Restore database
+cat backup-YYYY-MM-DD.sql | docker compose exec -T db psql -U postgres -d postgres
+
+# Backup file PDF (volume storage)
+docker run --rm -v kinanti_storage_data:/data -v "$PWD":/out alpine \
+  tar czf /out/storage-backup.tgz -C /data .</code></pre>
+
+<h2>8. Troubleshooting</h2>
+<table>
+  <tr><th>Gejala</th><th>Solusi</th></tr>
+  <tr><td>HTTPS gagal / sertifikat tidak terbit</td>
+      <td>Pastikan A record sudah mengarah ke IP VPS &amp; port 80/443 terbuka. Cek <code>docker compose logs caddy</code>.</td></tr>
+  <tr><td>Bot tidak connect</td>
+      <td>Scan ulang QR: <code>docker compose logs -f bot</code>. Bila sesi rusak, hapus volume: <code>docker compose down &amp;&amp; docker volume rm kinanti_wa_auth</code> lalu <code>up</code> &amp; scan lagi.</td></tr>
+  <tr><td>Upload PDF gagal</td>
+      <td>Cek storage sehat: <code>docker compose ps storage</code> &amp; <code>logs storage</code>. Pastikan bucket ada (dibuat otomatis oleh setup.sh).</td></tr>
+  <tr><td>Soal HOTS / penilaian gagal</td>
+      <td>Pastikan minimal satu token Gemini aktif di <code>/admin</code>. Cek status token (limited/error) di dashboard.</td></tr>
+  <tr><td>Web tidak bisa diakses</td>
+      <td><code>docker compose logs web</code>. Pastikan migrasi database sukses (jalankan ulang <code>setup.sh</code>).</td></tr>
+</table>
+
+<footer>
+  Kinanti — Dokumentasi Deploy &middot; Dihasilkan otomatis. Simpan file <code>.env</code> dengan aman
+  (berisi password &amp; kunci). Jangan commit ke Git.
+</footer>
+
+</body>
+</html>

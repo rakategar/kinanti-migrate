@@ -1,0 +1,16 @@
+# Caddy — reverse proxy + auto-HTTPS untuk Kinanti.
+# {$DOMAIN} & {$ACME_EMAIL} diinjeksi dari environment container caddy.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# Supabase Storage: /storage/v1/* → storage-api (prefix di-strip).
+	# storage-api menyajikan route /object, /bucket di root.
+	handle_path /storage/v1/* {
+		reverse_proxy storage:5000
+	}
+
+	# Sisanya → aplikasi web Next.js.
+	reverse_proxy web:3000
+}

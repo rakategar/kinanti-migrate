@@ -1,0 +1,37 @@
+# ---- Rahasia: JANGAN pernah di-commit ----
+.env
+.env.*
+!.env.example
+!.env.docker.example
+.env.validate
+
+# ---- Dependency & build ----
+node_modules/
+.next/
+out/
+build/
+dist/
+.pnpm-store/
+
+# ---- Sesi WhatsApp (berisi kredensial login WA) ----
+.wwebjs_auth/
+.wwebjs_cache/
+
+# ---- Log & runtime ----
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ---- Backup .git repo asal (hasil rename, bukan bagian repo ini) ----
+.git.orig/
+**/.git.orig/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Transkrip chat uji coba (data percakapan nyata) - jangan dipublikasikan
+kinanti/docs/test.txt

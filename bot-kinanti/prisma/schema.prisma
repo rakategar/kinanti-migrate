@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id          Int                    @id @default(autoincrement())
+  nama        String
+  phone       String                 @unique
+  password    String                 @default("")
+  role        Role
+  kelas       Kelas?
+  guruTugas   Assignment[]           @relation("GuruTugas")
+  tugas       AssignmentStatus[]
+  submissions AssignmentSubmission[]
+}
+
+model Assignment {
+  id           Int                    @id @default(autoincrement())
+  kode         String                 @unique
+  guruId       Int
+  judul        String
+  deskripsi    String
+  pdfUrl       String?
+  lampirkanPDF Boolean                @default(false)
+  createdAt    DateTime               @default(now())
+  kelas        String
+  deadline     DateTime?
+  kunciJawaban String?
+  guru         User                   @relation("GuruTugas", fields: [guruId], references: [id])
+  status       AssignmentStatus[]
+  submissions  AssignmentSubmission[]
+}
+
+model AssignmentStatus {
+  id      Int         @id @default(autoincrement())
+  siswaId Int
+  tugasId Int
+  status  TugasStatus @default(BELUM_SELESAI)
+  siswa   User        @relation(fields: [siswaId], references: [id])
+  tugas   Assignment  @relation(fields: [tugasId], references: [id], onDelete: Cascade)
+}
+
+model AssignmentSubmission {
+  id         Int         @id @default(autoincrement())
+  siswaId    Int
+  tugasId    Int
+  pdfUrl     String?
+  status     TugasStatus @default(SELESAI)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  evaluation String?
+  grade      String?
+  score      Int?
+  siswa      User        @relation(fields: [siswaId], references: [id])
+  tugas      Assignment  @relation(fields: [tugasId], references: [id], onDelete: Cascade)
+}
+
+model PhoneJidMapping {
+  id        Int      @id @default(autoincrement())
+  phone     String   @unique
+  jid       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// =================== AI TOKEN POOL ===================
+// Kumpulan API key AI (Gemini). Dipakai bersama oleh web & bot lewat DB yang sama.
+// Sistem memakai key sesuai priority; saat kena limit (429) key ditandai "limited"
+// dengan cooldownUntil dan sistem otomatis pindah ke key berikutnya.
+model AiToken {
+  id            Int       @id @default(autoincrement())
+  label         String
+  provider      String    @default("gemini")
+  apiKey        String
+  priority      Int       @default(0)
+  active        Boolean   @default(true)
+  status        String    @default("ok")
+  lastError     String?
+  cooldownUntil DateTime?
+  usageCount    Int       @default(0)
+  lastUsedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+enum Role {
+  guru
+  siswa
+}
+
+enum Kelas {
+  XTKJ1
+  XTKJ2
+  XITKJ1
+  XITKJ2
+  XIITKJ1
+  XIITKJ2
+  TPTUP
+}
+
+enum TugasStatus {
+  BELUM_SELESAI
+  SELESAI
+}
